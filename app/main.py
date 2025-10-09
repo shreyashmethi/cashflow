@@ -1,8 +1,5 @@
-from fastapi import FastAPI, Depends
-from sqlalchemy.orm import Session
-
+from fastapi import FastAPI
 from app.core.database import SessionLocal, engine, Base
-from app.models import transaction  # Import the transaction model to register it
 from aop.api import transactions as transaction_router
 
 Base.metadata.create_all(bind=engine)

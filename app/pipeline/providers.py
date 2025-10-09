@@ -1,9 +1,6 @@
-
 from __future__ import annotations
 import os
-import json
 import base64
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 # ---- Provider Abstraction ------------------------------------------------
@@ -84,32 +81,6 @@ class OpenAIProvider(BaseLLMProvider):
         )
         out = resp.choices[0].message.content or ""
         return out if not json_mode else self._ensure_json(out)
-    
-    """def generate_vision(self, system, user, image_parts, json_mode=False):
-        messages = [
-            {"role": "system", "content": system},
-            {"role": "user", "content": [{"type": "text", "text": user}, *image_parts]},
-        ]
-        kwargs = {"model": self.cfg.llm.model, "messages": messages, "temperature": 0}
-        if json_mode:
-            kwargs["response_format"] = {"type": "json_object"}
-        resp = self._client.chat.completions.create(**kwargs)
-        return resp.choices[0].message.content
-
-    def generate_vision_stateful(self, system, user, image_parts, state, json_mode=True):
-        # include previous state as text (or a tool call if you already use tools)
-        state_snippet = {"type": "text", "text": f"Current state JSON:\n{state}"}
-        messages = [
-            {"role": "system", "content": system},
-            {"role": "user", "content": [state_snippet, {"type": "text", "text": user}, *image_parts]},
-        ]
-        kwargs = {"model": self.cfg.llm.model, "messages": messages, "temperature": 0}
-        if json_mode:
-            kwargs["response_format"] = {"type": "json_object"}
-        resp = self._client.chat.completions.create(**kwargs)
-        # parse JSON string to dict
-        import json
-        return json.loads(resp.choices[0].message.content)"""
 
 # ---- Anthropic (Claude) ---------------------------------------------------
 

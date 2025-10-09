@@ -1,7 +1,6 @@
-
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List
 from app.config import PipelineConfig
 from app.pipeline.providers import make_provider
 from app.pipeline.prompts import (
@@ -17,7 +16,8 @@ from app.pipeline.loaders import (
     text_preview,
     load_image_bytes,
 )
-import os, json
+import json
+import os
 
 @dataclass
 class Plan:

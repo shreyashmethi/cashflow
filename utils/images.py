@@ -1,5 +1,6 @@
 # llm_doc_pipeline/utils/images.py
-import io, base64
+import io
+import base64
 from PIL import Image
 
 def _ensure_rgb(im: Image.Image) -> Image.Image:

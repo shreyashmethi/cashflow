@@ -1,7 +1,7 @@
-
 from __future__ import annotations
-import os, io, base64
-from typing import Dict, List, Optional, Tuple
+import os
+import io
+from typing import Dict, List
 from dataclasses import dataclass
 from tqdm import tqdm
 import pandas as pd
@@ -163,19 +163,16 @@ def render_powerpoint_pages(path: str, dpi: int = 180) -> List[bytes]:
 
 # -------------------- CSV --------------------
 def csv_overview(path: str, sample_rows: int = 50) -> Dict[str, List[List[str]]]:
-    import pandas as pd
     df = pd.read_csv(path, nrows=sample_rows, header=None)
     grid = [[str(v) for v in row] for row in df.values.tolist()]
     return {"default_sheet": grid}
 
 def csv_load_all(path: str) -> Dict[str, "pd.DataFrame"]:
-    import pandas as pd
     df = pd.read_csv(path)
     return {"default_sheet": df}
 
 # -------------------- Excel ------------------
 def excel_overview(path: str, sample_rows: int = 50) -> Dict[str, List[List[str]]]:
-    # import pandas as pd  # required for excel path
     xls = pd.ExcelFile(path)
     overview = {}
     for sheet in xls.sheet_names:
@@ -189,7 +186,6 @@ def excel_overview(path: str, sample_rows: int = 50) -> Dict[str, List[List[str]
     return overview
 
 def excel_load_all(path: str) -> Dict[str, "pd.DataFrame"]:
-    # import pandas as pd
     xls = pd.ExcelFile(path)
     dfs = {sheet: xls.parse(sheet) for sheet in xls.sheet_names}
     return dfs

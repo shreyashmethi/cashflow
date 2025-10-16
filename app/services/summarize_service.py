@@ -213,23 +213,20 @@ class SummarizeService:
 
         # Trends
         if trends['trends']['income_trend'] != 'insufficient_data':
-            lines.append("
-## Trends")
+            lines.append("\n## Trends")
             lines.append(f"Income trend: **{trends['trends']['income_trend']}** ({trends['trends']['income_change_percent']:+.1f}%)")
             lines.append(f"Expense trend: **{trends['trends']['expense_trend']}** ({trends['trends']['expense_change_percent']:+.1f}%)")
 
         # Top vendors
         if top_vendors:
-            lines.append("
-## Top Spending Vendors")
+            lines.append("\n## Top Spending Vendors")
             for vendor in top_vendors[:5]:
                 lines.append(f"- **{vendor['vendor']}**: ${vendor['total_spent']:,.2f} ({vendor['transaction_count']} transactions)")
 
         # Categories
         if categories:
             total_expenses = sum(cat['total_spent'] for cat in categories)
-            lines.append("
-## Spending by Category")
+            lines.append("\n## Spending by Category")
             for category in categories:
                 percentage = (category['total_spent'] / total_expenses * 100) if total_expenses > 0 else 0
                 lines.append(f"- **{category['category']}**: ${category['total_spent']:,.2f} ({percentage:.1f}%)")

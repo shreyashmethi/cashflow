@@ -6,7 +6,20 @@ import os
 
 @dataclass
 class DatabaseConfig:
-    url: str = os.getenv("DATABASE_URL", "postgresql://user:password@localhost:5432/cashflow")
+    # Get database credentials from environment
+    user: str = os.getenv("DB_USER", "postgres")
+    password: str = os.getenv("DB_PASSWORD", "postgres")
+    host: str = os.getenv("DB_HOST", "localhost")
+    port: str = os.getenv("DB_PORT", "5432")
+    name: str = os.getenv("DB_NAME", "cashflow")
+    
+    @property
+    def url(self) -> str:
+        """Construct database URL from components or use DATABASE_URL if provided"""
+        return os.getenv(
+            "DATABASE_URL",
+            f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.name}"
+        )
 
 @dataclass
 class LLMConfig:

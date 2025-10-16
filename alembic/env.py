@@ -5,6 +5,11 @@ from sqlalchemy.orm import sessionmaker
 
 from alembic import context
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+import os
+load_dotenv()
+
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
@@ -16,10 +21,13 @@ if config.config_file_name is not None:
 
 # Import the Base metadata from the app
 import sys
-import os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from app.core.database import Base
+from app.core.database import Base, DATABASE_URL
+
+# Override the sqlalchemy.url in alembic config with the one from our database module
+# This ensures Alembic uses the same connection string as the app
+config.set_main_option('sqlalchemy.url', DATABASE_URL)
 
 # add your model's MetaData object here
 # for 'autogenerate' support
@@ -68,15 +76,16 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
 
-    with connectable.connect() as connection:
-        # Enable pgvector extension if using PostgreSQL
-        try:
-            connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
-            connection.commit()
-        except Exception:
-            # Extension might not be available or already exists
-            pass
+    # Enable pgvector extension in a separate transaction
+    try:
+        with connectable.connect() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+            conn.commit()
+    except Exception:
+        # Extension might not be available, already exists, or user doesn't have permission
+        pass
 
+    with connectable.connect() as connection:
         context.configure(
             connection=connection, target_metadata=target_metadata
         )

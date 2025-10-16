@@ -10,8 +10,9 @@ This service handles:
 import os
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
-from intuit.oauth2 import OAuth2Client
-from intuit.exceptions import AuthClientError
+from intuitlib.client import AuthClient
+from intuitlib.enums import Scopes
+from intuitlib.exceptions import AuthClientError
 from sqlalchemy.orm import Session
 from app.models.quickbooks_connection import QuickBooksConnection
 import logging
@@ -41,7 +42,7 @@ class QuickBooksOAuthService:
         Returns:
             Authorization URL for user to visit
         """
-        auth_client = OAuth2Client(
+        auth_client = AuthClient(
             client_id=self.client_id,
             client_secret=self.client_secret,
             redirect_uri=self.redirect_uri,
@@ -49,10 +50,12 @@ class QuickBooksOAuthService:
         )
         
         scopes = [
-            'com.intuit.quickbooks.accounting',  # Access to accounting data
+            Scopes.ACCOUNTING,  # Access to accounting data
         ]
         
-        auth_url = auth_client.get_authorization_url(scopes, state=state)
+        auth_url = auth_client.get_authorization_url(scopes)
+        if state:
+            auth_url += f"&state={state}"
         return auth_url
     
     def exchange_code_for_tokens(
@@ -72,7 +75,7 @@ class QuickBooksOAuthService:
         Returns:
             QuickBooksConnection object with stored tokens
         """
-        auth_client = OAuth2Client(
+        auth_client = AuthClient(
             client_id=self.client_id,
             client_secret=self.client_secret,
             redirect_uri=self.redirect_uri,
@@ -132,7 +135,7 @@ class QuickBooksOAuthService:
         Returns:
             Updated QuickBooksConnection object
         """
-        auth_client = OAuth2Client(
+        auth_client = AuthClient(
             client_id=self.client_id,
             client_secret=self.client_secret,
             redirect_uri=self.redirect_uri,
@@ -142,7 +145,7 @@ class QuickBooksOAuthService:
         
         try:
             # Refresh the token
-            auth_client.refresh()
+            auth_client.refresh(realm_id=connection.realm_id)
             
             # Update connection with new tokens
             connection.access_token = auth_client.access_token
@@ -193,7 +196,7 @@ class QuickBooksOAuthService:
         Returns:
             True if successful
         """
-        auth_client = OAuth2Client(
+        auth_client = AuthClient(
             client_id=self.client_id,
             client_secret=self.client_secret,
             redirect_uri=self.redirect_uri,
@@ -203,7 +206,7 @@ class QuickBooksOAuthService:
         
         try:
             # Revoke tokens
-            auth_client.revoke()
+            auth_client.revoke(token=connection.refresh_token)
             
             # Mark connection as inactive
             connection.is_active = False
@@ -228,9 +231,6 @@ class QuickBooksOAuthService:
         Returns:
             Company information dict
         """
-        from intuitlib.client import AuthClient
-        from intuitlib.enums import Scopes
-        
         # Get valid access token
         access_token = self.get_valid_access_token(connection, db)
         

@@ -21,7 +21,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     """Upgrade schema."""
     # Enable pgvector extension if using PostgreSQL
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    # op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
     # Create vendors table
     op.create_table('vendors',

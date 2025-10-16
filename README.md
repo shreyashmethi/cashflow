@@ -1,114 +1,420 @@
 
-# LLM Document Pipeline (Planner + Vision + Excel Codegen)
+# Cash Flow Analysis & Visualization Tool
 
-This module adds an **LLM-driven planner** and **extractors** that work across many document types:
+An AI-powered financial data analysis and visualization API that processes bank statements, invoices, and other financial documents to provide insights, anomaly detection, and natural language querying capabilities.
 
-- Configurable LLMs: **GPT (default)** or **Claude** (any model string).
-- **Folder ingestion** (process many docs at once).
-- Planner uses LLM to **classify** each document and select the best strategy.
-- **Vision** capability for PDFs/images, with auto **full-document** vs **page-by-page**.
-- **Excel**: pre-planning + optional **dynamic code generation** to extract tables with pandas.
+## Features
 
-## Install
+- **Document Processing**: Parse CSV, Excel, PDF, and other document formats
+- **Vendor Resolution**: Automatic vendor name normalization and deduplication
+- **Data Validation**: Comprehensive transaction validation and anomaly detection
+- **Natural Language Queries**: Safe SQL generation from natural language questions
+- **Financial Summarization**: KPI calculation and trend analysis
+- **Visualization Data**: Generate data for charts and dashboards
+- **Anomaly Detection**: Statistical outlier detection using z-score and IQR methods
 
-```bash
-pip install openai anthropic pandas numpy pypdf pillow
-# Optional but recommended for PDFs -> images:
-pip install pymupdf  # or: pip install pdf2image
-# Optional for Word/HTML text previews:
-pip install python-docx beautifulsoup4
-```
+## Quick Start
 
-Set API keys in env:
+### Installation
 
 ```bash
-export OPENAI_API_KEY=...
-export ANTHROPIC_API_KEY=...
+pip install -r requirements.txt
 ```
 
-## Usage
+### Environment Setup
 
-```python
-from llm_doc_pipeline.config import PipelineConfig, LLMConfig, VisionConfig, PlannerConfig
-from llm_doc_pipeline.run_pipeline import run_folder
-
-cfg = PipelineConfig(
-    llm=LLMConfig(provider="gpt", model=None, enable_vision=True),
-    vision=VisionConfig(strategy="auto", max_pages_full=15, dpi=180),
-    planner=PlannerConfig(concurrency=2, classify_with_llm=True),
-)
-
-results = run_folder("/path/to/folder", cfg, output_jsonl="out.jsonl")
-```
-
-Or CLI:
+Set your database URL and API keys:
 
 ```bash
-python -m llm_doc_pipeline.run_pipeline --input ./docs --provider gpt --vision auto --concurrency 4 --jsonl results.jsonl
+export DATABASE_URL="postgresql://username:password@localhost:5432/cashflow"
+export OPENAI_API_KEY="your-openai-key"
 ```
 
-## What it does
-
-1. **Scan folder** for supported files.
-2. **Plan** per file (LLM classifies + chooses a strategy):
-   - `excel` → Excel extractor
-   - `vision_full` → send all pages/images to LLM
-   - `vision_per_page` → page loop, merge JSON
-   - `text` → text chunk to LLM
-3. **Extract** with the selected strategy.
-4. **Write** JSONL (optional).
-
-## Excel dynamic codegen
-
-- Pre-plans layout by LLM (or heuristics fallback).
-- Optionally asks the LLM to **generate a pandas program** to transform sheets into a single `result` DataFrame.
-- You may disable execution of generated code (for review) via config.
-
-## Notes
-
-- When vision is off or not available, the pipeline falls back to text.
-- For very long PDFs, the planner may choose **page-by-page** to control token usage.
-- Safety: executing generated code is sandboxed with a **very restricted** environment, but still review in sensitive contexts.
-
-## Spec-driven extraction & Post-processing
-
-You can pass a JSON **field spec** so the extractor asks the LLM to fill exactly those fields
-(with metadata like `confidence`, `page`, and `provenance`). Use the included sample:
+### Database Setup
 
 ```bash
-python -m llm_doc_pipeline.run_pipeline --input ./docs --provider gpt --vision auto --spec llm_doc_pipeline/sample_spec_annual_report.json --jsonl results.jsonl
+# Run migrations
+python -m alembic upgrade head
+
+# Create database extension
+psql $DATABASE_URL -c "CREATE EXTENSION IF NOT EXISTS vector;"
 ```
 
-Programmatic:
+### Start the API
 
-```python
-import json
-from llm_doc_pipeline.config import PipelineConfig, LLMConfig, VisionConfig, PlannerConfig
-from llm_doc_pipeline.run_pipeline import run_folder
-from llm_doc_pipeline.postprocess import PostProcessorSDK, SampleAnnualReportProcessor
-
-with open("llm_doc_pipeline/sample_spec_annual_report.json","r") as f:
-    spec = json.load(f)
-
-cfg = PipelineConfig(
-    llm=LLMConfig(provider="gpt", enable_vision=True),
-    vision=VisionConfig(strategy="auto"),
-    planner=PlannerConfig(concurrency=4),
-)
-
-post = PostProcessorSDK()
-post.register(SampleAnnualReportProcessor())
-
-results = run_folder("./docs", cfg, spec=spec, post_sdk=post, output_jsonl="results.jsonl")
+```bash
+uvicorn app.main:app --reload
 ```
 
-Each extracted scalar field is an object:
+The API will be available at `http://localhost:8000` with interactive OpenAPI documentation at `/docs`.
 
+## API Endpoints
+
+### Transaction Management
+
+#### Parse Transactions from File
+```http
+POST /api/parse-transactions
+Content-Type: multipart/form-data
+
+# Upload a CSV, Excel, or PDF file
+```
+
+**Response:**
 ```json
 {
-  "company_name": {"value": "Fairfax Financial Holdings Limited", "confidence": 0.93, "page": 1, "provenance": {"text": "Fairfax Financial Holdings Limited", "bbox": null}}
+  "filename": "transactions.csv",
+  "transactions_saved": 150,
+  "vendors_resolved": 45,
+  "duplicates_found": 3,
+  "metadata": {
+    "file_type": "csv",
+    "total_raw_records": 153,
+    "normalized_records": 150
+  }
 }
 ```
 
-Each array row contains per-cell objects with the same structure.
-The `PostProcessorSDK` then runs validation + enrichment (see `postprocess.py`).
+#### Get Transactions
+```http
+GET /api/transactions?limit=100&offset=0&vendor_id=uuid&category=expense&date_from=2024-01-01&date_to=2024-12-31
+```
+
+#### Validate Transactions
+```http
+POST /api/validate-transactions
+Content-Type: application/json
+
+{
+  "transactions": [
+    {
+      "transaction_date": "2024-01-15T10:30:00Z",
+      "amount": -45.67,
+      "vendor": "Starbucks Coffee",
+      "category": "expense",
+      "description": "Coffee purchase"
+    }
+  ]
+}
+```
+
+**Response:**
+```json
+{
+  "total_transactions": 1,
+  "valid_transactions": 1,
+  "invalid_transactions": 0,
+  "results": [
+    {
+      "index": 0,
+      "is_valid": true,
+      "errors": [],
+      "warnings": []
+    }
+  ],
+  "summary": {
+    "common_errors": [],
+    "common_warnings": [],
+    "error_rate": 0.0,
+    "warning_rate": 0.0
+  },
+  "duplicates": [],
+  "anomalies": []
+}
+```
+
+### Analytics & Insights
+
+#### Natural Language Query
+```http
+POST /api/query
+Content-Type: application/json
+
+{
+  "query": "What was the total spending on groceries last month?",
+  "date_from": "2024-01-01",
+  "date_to": "2024-01-31",
+  "limit": 100
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "sql": "SELECT SUM(amount) as total FROM transactions WHERE amount < 0 AND category = 'groceries' AND transaction_date >= '2024-01-01' AND transaction_date <= '2024-01-31'",
+  "intent": "total_spend",
+  "results": [
+    {"total": -1250.75}
+  ],
+  "execution_time_ms": 45.2,
+  "result_count": 1
+}
+```
+
+#### Generate Summary
+```http
+POST /api/summarize
+Content-Type: application/json
+
+{
+  "date_from": "2024-01-01",
+  "date_to": "2024-01-31",
+  "include_anomalies": true
+}
+```
+
+**Response:**
+```json
+{
+  "period": {
+    "from": "2024-01-01T00:00:00",
+    "to": "2024-01-31T23:59:59",
+    "days": 31
+  },
+  "kpis": {
+    "total_income": 5000.0,
+    "total_expenses": 3250.75,
+    "net_cashflow": 1749.25,
+    "total_transactions": 45,
+    "average_transaction": 181.85,
+    "unique_vendors": 23
+  },
+  "trends": {
+    "monthly_breakdown": [
+      {
+        "month": "2024-01",
+        "income": 5000.0,
+        "expenses": 3250.75,
+        "net": 1749.25
+      }
+    ],
+    "trends": {
+      "income_trend": "stable",
+      "expense_trend": "increasing",
+      "income_change_percent": 2.1,
+      "expense_change_percent": 15.3
+    }
+  },
+  "top_vendors": [
+    {
+      "vendor": "Amazon",
+      "total_spent": -450.0,
+      "transaction_count": 12
+    }
+  ],
+  "categories": [
+    {
+      "category": "groceries",
+      "total_spent": -800.0,
+      "transaction_count": 15,
+      "percentage": 24.6
+    }
+  ],
+  "summary_text": "## Financial Summary\n**Total Income:** $5,000.00\n**Total Expenses:** $3,250.75\n..."
+}
+```
+
+#### Get Visualization Data
+```http
+POST /api/visualize-data
+Content-Type: application/json
+
+{
+  "chart_type": "bar",
+  "date_from": "2024-01-01",
+  "date_to": "2024-01-31",
+  "group_by": "month",
+  "category": "expense"
+}
+```
+
+**Response:**
+```json
+{
+  "chart_type": "bar",
+  "title": "Top Spending Vendors - Expense Category (Jan 2024 - Jan 2024)",
+  "data": [
+    {"vendor": "Amazon", "amount": 450.0, "count": 12},
+    {"vendor": "Starbucks", "amount": 125.0, "count": 8}
+  ],
+  "labels": ["Amazon", "Starbucks"],
+  "metadata": {
+    "date_range": {
+      "from": "2024-01-01T00:00:00",
+      "to": "2024-01-31T23:59:59"
+    },
+    "filters": {
+      "category": "expense",
+      "group_by": "month"
+    }
+  }
+}
+```
+
+#### Anomaly Detection
+```http
+POST /api/run-anomaly-scan
+Content-Type: application/json
+
+{
+  "date_from": "2024-01-01",
+  "date_to": "2024-01-31",
+  "persist_results": true
+}
+```
+
+**Response:**
+```json
+{
+  "total_scanned": 150,
+  "anomalies_found": 3,
+  "anomalies": [
+    {
+      "vendor_id": "uuid",
+      "anomaly_type": "z_score_outlier",
+      "severity": "high",
+      "description": "Unusual expense amount ($1,200.00) for vendor - 3.2 standard deviations from mean",
+      "expected_value": 150.0,
+      "actual_value": 1200.0,
+      "confidence": 0.85
+    }
+  ],
+  "scan_time_ms": 125.5
+}
+```
+
+#### Get Anomalies
+```http
+GET /api/anomalies?limit=50&severity=high&resolved=false
+```
+
+## Supported File Types
+
+- **CSV**: Transaction data in comma-separated format
+- **Excel**: .xlsx and .xls files with transaction data
+- **PDF**: Bank statements and invoices (requires vision capability)
+- **Images**: Scanned receipts and documents (requires vision capability)
+- **Word/HTML**: Text-based financial documents
+
+## Configuration
+
+### Environment Variables
+
+```bash
+# Database
+DATABASE_URL=postgresql://username:password@localhost:5432/cashflow
+
+# LLM Providers
+OPENAI_API_KEY=your-openai-key
+ANTHROPIC_API_KEY=your-anthropic-key
+
+# Optional: Model overrides
+OPENAI_MODEL=gpt-4o
+ANTHROPIC_MODEL=claude-3-5-sonnet-20240620
+```
+
+### Application Configuration
+
+The system uses dataclasses for configuration. Key settings:
+
+```python
+from app.config import PipelineConfig, LLMConfig, VisionConfig
+
+config = PipelineConfig(
+    llm=LLMConfig(
+        provider="gpt",  # or "claude"
+        model="gpt-4o",
+        enable_vision=True,
+        temperature=0.0
+    ),
+    vision=VisionConfig(
+        strategy="auto",  # auto, full_document, page_by_page, off
+        max_pages_full=15,
+        dpi=180
+    )
+)
+```
+
+## Architecture
+
+### Database Schema
+
+The system uses PostgreSQL with the following core tables:
+
+- **transactions**: Financial transaction records
+- **vendors**: Normalized vendor information
+- **statements**: Metadata about source files
+- **anomalies**: Detected anomalies and issues
+- **nlq_queries**: Log of natural language queries
+
+### Services
+
+- **FileParser**: Parses and normalizes transaction data from files
+- **VendorService**: Handles vendor resolution and deduplication
+- **ValidationService**: Validates transactions and detects issues
+- **NLQService**: Safe natural language to SQL conversion
+- **SummarizeService**: Generates financial summaries and KPIs
+- **VisualizationService**: Creates data for charts and visualizations
+- **AnomalyService**: Detects statistical anomalies
+
+### Security
+
+- **SQL Injection Prevention**: Uses parameterized queries and sqlglot parsing
+- **Schema Whitelisting**: Only allows access to predefined tables and columns
+- **Input Validation**: Comprehensive Pydantic schemas for all endpoints
+- **Rate Limiting**: Ready for implementation via middleware
+
+## Development
+
+### Running Tests
+
+```bash
+pytest tests/
+```
+
+### Database Migrations
+
+```bash
+# Generate new migration
+alembic revision --autogenerate -m "description"
+
+# Apply migrations
+alembic upgrade head
+
+# Rollback
+alembic downgrade -1
+```
+
+### API Documentation
+
+Visit `/docs` when the server is running for interactive OpenAPI documentation.
+
+## Deployment
+
+### Docker
+
+```bash
+docker build -t cashflow-api .
+docker run -p 8000:8000 -e DATABASE_URL=... -e OPENAI_API_KEY=... cashflow-api
+```
+
+### Production Considerations
+
+- Use a production WSGI server (Gunicorn + Uvicorn)
+- Enable database connection pooling
+- Set up proper logging and monitoring
+- Consider Redis for caching query results
+- Implement rate limiting and authentication
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new functionality
+4. Ensure all tests pass
+5. Submit a pull request
+
+## License
+
+MIT License - see LICENSE file for details.

@@ -8,6 +8,8 @@ python-dotenv>=1.0.0
 pandas>=1.5.0
 numpy>=1.20.0
 tqdm>=4.60.0
+alembic>=1.12.0
+sqlglot>=20.0.0
 
 # LLM providers
 openai>=1.0.0
@@ -31,3 +33,8 @@ pytesseract>=0.3.10
 
 # Streamlit
 streamlit>=1.36.0
+
+# QuickBooks Integration
+intuit-oauth>=1.2.4
+python-quickbooks>=0.9.0
+requests>=2.31.0

@@ -121,3 +121,70 @@ class DashboardResponse(BaseModel):
     ai_insights: List[AIInsight] = Field(..., description="AI-generated insights")
     recent_transactions: List[RecentTransaction] = Field(..., description="Recent transactions")
     last_updated: datetime = Field(..., description="Last data update timestamp")
+
+# Forecasting schemas
+class ForecastRequest(BaseModel):
+    """Request schema for cash flow forecasting."""
+    forecast_period: Literal["7d", "30d", "90d", "180d", "365d"] = Field("30d", description="Forecast period")
+    scenario_type: Literal["optimistic", "realistic", "conservative"] = Field("realistic", description="Forecast scenario type")
+    include_seasonality: bool = Field(True, description="Include seasonal adjustments")
+    confidence_level: float = Field(80, ge=50, le=95, description="Confidence level percentage")
+
+class ForecastKPIs(BaseModel):
+    """Schema for forecasting KPIs."""
+    projected_cashflow: float = Field(..., description="Total projected cash flow")
+    projected_cashflow_formatted: str = Field(..., description="Formatted projected cash flow")
+    projected_cashflow_change: float = Field(..., description="Percentage change from historical")
+    minimum_cash_balance: float = Field(..., description="Minimum forecasted cash balance")
+    minimum_cash_balance_formatted: str = Field(..., description="Formatted minimum cash balance")
+    forecast_accuracy: float = Field(..., description="Forecast accuracy percentage")
+    forecast_accuracy_formatted: str = Field(..., description="Formatted forecast accuracy")
+    forecast_accuracy_level: Literal["High", "Medium", "Low"] = Field(..., description="Accuracy level")
+
+class ForecastAlert(BaseModel):
+    """Schema for forecast alerts."""
+    type: Literal["warning", "info", "opportunity"] = Field(..., description="Alert type")
+    priority: Literal["high", "medium", "low"] = Field(..., description="Alert priority")
+    title: str = Field(..., description="Alert title")
+    message: str = Field(..., description="Alert message")
+    days_until: int = Field(..., description="Days until the event")
+    suggested_action: str = Field(..., description="Suggested action")
+
+class ScenarioAnalysis(BaseModel):
+    """Schema for scenario analysis results."""
+    total_projected: float = Field(..., description="Total projected amount")
+    formatted_total: str = Field(..., description="Formatted total")
+    monthly_average: float = Field(..., description="Monthly average")
+    confidence_range: Dict[str, float] = Field(..., description="Confidence range (lower/upper)")
+
+class ChartDataPoint(BaseModel):
+    """Schema for chart data points."""
+    period: str = Field(..., description="Time period")
+    income: float = Field(..., description="Income amount")
+    expenses: float = Field(..., description="Expenses amount")
+    net_cashflow: float = Field(..., description="Net cash flow")
+    confidence_lower: Optional[float] = Field(None, description="Lower confidence bound")
+    confidence_upper: Optional[float] = Field(None, description="Upper confidence bound")
+    is_forecast: Optional[bool] = Field(False, description="Whether this is forecast data")
+
+class ForecastResponse(BaseModel):
+    """Response schema for forecasting data."""
+    forecast_settings: Dict[str, Any] = Field(..., description="Forecast configuration settings")
+    kpis: ForecastKPIs = Field(..., description="Key performance indicators")
+    chart_data: Dict[str, Any] = Field(..., description="Chart data with historical and forecast points")
+    scenario_analysis: Dict[str, ScenarioAnalysis] = Field(..., description="Scenario analysis results")
+    alerts: Dict[str, Any] = Field(..., description="Forecast alerts")
+    metadata: Dict[str, Any] = Field(..., description="Additional metadata")
+
+class ForecastSettings(BaseModel):
+    """Schema for forecast settings."""
+    available_periods: List[str] = Field(..., description="Available forecast periods")
+    available_scenarios: List[str] = Field(..., description="Available scenario types")
+    default_confidence: float = Field(..., description="Default confidence level")
+    max_historical_months: int = Field(..., description="Maximum historical data months")
+
+class AlertsResponse(BaseModel):
+    """Response schema for alerts data."""
+    alerts: List[ForecastAlert] = Field(..., description="List of alerts")
+    total_count: int = Field(..., description="Total number of alerts")
+    unread_count: int = Field(..., description="Number of unread alerts")

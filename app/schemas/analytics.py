@@ -69,3 +69,55 @@ class AnomalyScanResponse(BaseModel):
 class QueryHistoryResponse(BaseModel):
     """Response schema for query history."""
     queries: List[Dict[str, Any]] = Field(..., description="Recent queries")
+
+class KPICard(BaseModel):
+    """Schema for KPI card data."""
+    value: float = Field(..., description="KPI value")
+    change_percent: float = Field(..., description="Percentage change from previous period")
+    change_direction: Literal["up", "down", "stable"] = Field(..., description="Direction of change")
+    formatted_value: str = Field(..., description="Formatted value string")
+    title: str = Field(..., description="KPI title")
+    icon: str = Field(..., description="Icon identifier")
+
+class CashHealthMetric(BaseModel):
+    """Schema for cash health metrics."""
+    liquidity_ratio: str = Field(..., description="Liquidity ratio assessment")
+    cash_runway_months: int = Field(..., description="Cash runway in months")
+    burn_rate: str = Field(..., description="Burn rate assessment")
+    overall_score: int = Field(..., description="Overall cash health score (0-100)")
+
+class AIInsight(BaseModel):
+    """Schema for AI-generated insights."""
+    category: str = Field(..., description="Insight category")
+    title: str = Field(..., description="Insight title")
+    message: str = Field(..., description="Insight message")
+    priority: Literal["high", "medium", "low"] = Field(..., description="Priority level")
+    actionable: bool = Field(..., description="Whether insight is actionable")
+
+class RecentTransaction(BaseModel):
+    """Schema for recent transaction data."""
+    id: str = Field(..., description="Transaction ID")
+    date: str = Field(..., description="Formatted date")
+    description: str = Field(..., description="Transaction description")
+    category: Optional[str] = Field(None, description="Transaction category")
+    amount: float = Field(..., description="Transaction amount")
+    status: str = Field(..., description="Transaction status")
+    vendor: Optional[str] = Field(None, description="Vendor name")
+
+class DashboardRequest(BaseModel):
+    """Request schema for dashboard data."""
+    date_from: Optional[datetime] = Field(None, description="Start date for dashboard period")
+    date_to: Optional[datetime] = Field(None, description="End date for dashboard period")
+    include_insights: Optional[bool] = Field(True, description="Include AI insights")
+    include_transactions: Optional[bool] = Field(True, description="Include recent transactions")
+
+class DashboardResponse(BaseModel):
+    """Response schema for dashboard data."""
+    period: Dict[str, str] = Field(..., description="Dashboard period information")
+    kpi_cards: List[KPICard] = Field(..., description="Key performance indicator cards")
+    cash_flow_trend: Dict[str, Any] = Field(..., description="Cash flow trend chart data")
+    cash_health: CashHealthMetric = Field(..., description="Cash health metrics")
+    spending_by_category: Dict[str, Any] = Field(..., description="Spending by category chart data")
+    ai_insights: List[AIInsight] = Field(..., description="AI-generated insights")
+    recent_transactions: List[RecentTransaction] = Field(..., description="Recent transactions")
+    last_updated: datetime = Field(..., description="Last data update timestamp")

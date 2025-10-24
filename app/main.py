@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 
@@ -17,6 +18,15 @@ app = FastAPI(
     title="Cash Flow Analysis & Visualization Tool",
     description="AI-powered financial data analysis and visualization API",
     version="1.0.0"
+)
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins - configure this more specifically for production
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
 )
 
 app.include_router(transaction_router.router, prefix="/api", tags=["transactions"])

@@ -5,12 +5,14 @@ from app.services.nlq_service import NLQService
 from app.services.summarize_service import SummarizeService
 from app.services.visualization_service import VisualizationService
 from app.services.anomaly_service import AnomalyService
+from app.services.dashboard_service import DashboardService
 from app.schemas.analytics import (
     QueryRequest, QueryResponse,
     SummarizeRequest, SummarizeResponse,
     VisualizationRequest, VisualizationResponse,
     AnomalyScanRequest, AnomalyScanResponse,
-    QueryHistoryResponse
+    QueryHistoryResponse,
+    DashboardRequest, DashboardResponse
 )
 from datetime import datetime
 from typing import Optional
@@ -149,6 +151,27 @@ async def get_anomalies(
             "limit": limit,
             "offset": offset
         }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/dashboard", response_model=DashboardResponse)
+async def get_dashboard_data(
+    request: DashboardRequest,
+    db: Session = Depends(get_db)
+):
+    """Get comprehensive dashboard data for frontend."""
+    dashboard_service = DashboardService(db)
+
+    try:
+        data = dashboard_service.get_dashboard_data(
+            date_from=request.date_from,
+            date_to=request.date_to,
+            include_insights=request.include_insights,
+            include_transactions=request.include_transactions
+        )
+
+        return DashboardResponse(**data)
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

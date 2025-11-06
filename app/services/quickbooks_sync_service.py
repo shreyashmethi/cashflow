@@ -158,6 +158,11 @@ class QuickBooksSyncService:
         try:
             # Fetch vendors from QuickBooks
             vendors_data = self._fetch_quickbooks_vendors(connection.realm_id, access_token)
+            self._log_payload_preview(
+                label="vendors",
+                items=vendors_data,
+                keys=["Id", "DisplayName", "Active"],
+            )
             
             vendors_synced = 0
             for vendor_data in vendors_data:
@@ -182,7 +187,7 @@ class QuickBooksSyncService:
                     vendors_synced += 1
             
             db.commit()
-            logger.info(f"Synced {vendors_synced} vendors")
+            logger.info(f"Synced {vendors_synced} vendors (fetched {len(vendors_data)})")
             return vendors_synced
             
         except Exception as e:
@@ -215,12 +220,24 @@ class QuickBooksSyncService:
             )
             
             stats["fetched"] = len(transactions_data)
+            self._log_payload_preview(
+                label="transactions",
+                items=transactions_data,
+                keys=["Id", "type", "TxnDate", "TotalAmt", "TxnTotalAmt"],
+            )
             
             for txn_data in transactions_data:
                 result = self._process_transaction(connection, txn_data, db)
                 stats[result] += 1
             
             db.commit()
+            logger.info(
+                "Transactions processed: fetched=%s created=%s updated=%s skipped=%s",
+                stats["fetched"],
+                stats["created"],
+                stats["updated"],
+                stats["skipped"],
+            )
             return stats
             
         except Exception as e:
@@ -252,7 +269,7 @@ class QuickBooksSyncService:
         
         # Extract transaction data
         txn_date = self._parse_qb_date(txn_data.get("TxnDate"))
-        amount = float(txn_data.get("Amount", 0))
+        amount = self._extract_transaction_amount(txn_data)
         description = txn_data.get("Description") or ""
         
         # Get vendor
@@ -285,8 +302,23 @@ class QuickBooksSyncService:
                 existing_txn.category = category
                 existing_txn.vendor_id = vendor.id if vendor else None
                 existing_txn.quickbooks_sync_version = sync_version
+                logger.debug(
+                    "Updated transaction %s for realm %s: date=%s amount=%s vendor=%s category=%s",
+                    qb_txn_id,
+                    connection.realm_id,
+                    txn_date,
+                    amount,
+                    vendor.name if vendor else None,
+                    category,
+                )
                 return "updated"
             else:
+                logger.debug(
+                    "Skipped transaction %s for realm %s: sync version unchanged (%s)",
+                    qb_txn_id,
+                    connection.realm_id,
+                    sync_version,
+                )
                 return "skipped"
         else:
             # Create new transaction
@@ -304,6 +336,15 @@ class QuickBooksSyncService:
                 quickbooks_sync_version=sync_version
             )
             db.add(transaction)
+            logger.debug(
+                "Created transaction %s for realm %s: date=%s amount=%s vendor=%s category=%s",
+                qb_txn_id,
+                connection.realm_id,
+                txn_date,
+                amount,
+                vendor.name if vendor else None,
+                category,
+            )
             return "created"
     
     # Helper methods for QuickBooks API calls (placeholder implementations)
@@ -505,4 +546,63 @@ class QuickBooksSyncService:
         }
         
         return mapping.get(txn_type, "other")
+
+    def _extract_transaction_amount(self, txn_data: Dict[str, Any]) -> float:
+        """Extract the monetary amount from a QuickBooks transaction payload"""
+        # Most entities expose TotalAmt or TxnTotalAmt
+        for key in ("TotalAmt", "TxnTotalAmt", "Amount"):
+            value = txn_data.get(key)
+            if value is not None:
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    continue
+
+        # Fallback: sum line amounts if available
+        lines = txn_data.get("Line", [])
+        if isinstance(lines, dict):
+            lines = [lines]
+
+        total = 0.0
+        for line in lines:
+            amount = line.get("Amount")
+            if amount is None:
+                continue
+            try:
+                total += float(amount)
+            except (TypeError, ValueError):
+                continue
+
+        return total
+
+    def _log_payload_preview(
+        self,
+        label: str,
+        items: List[Dict[str, Any]],
+        keys: Optional[List[str]] = None,
+        limit: int = 5,
+    ) -> None:
+        """Log a concise preview of payload data for debugging"""
+        if not items:
+            logger.info("No %s records fetched", label)
+            return
+
+        preview = []
+        for item in items[:limit]:
+            if keys:
+                preview.append({key: item.get(key) for key in keys})
+            else:
+                # Default to first few keys
+                subset = {}
+                for key in list(item.keys())[:5]:
+                    subset[key] = item.get(key)
+                preview.append(subset)
+
+        logger.debug(
+            "Preview %s payload (showing %s of %s): %s",
+            label,
+            min(len(items), limit),
+            len(items),
+            preview,
+        )
 

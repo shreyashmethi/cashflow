@@ -2,6 +2,7 @@ import uuid
 from sqlalchemy import Column, String, DateTime, func
 from sqlalchemy.dialects.postgresql import UUID
 from app.core.database import Base
+from sqlalchemy.orm import relationship
 
 class Vendor(Base):
     __tablename__ = "vendors"
@@ -12,3 +13,6 @@ class Vendor(Base):
     embedding = Column(String, nullable=True)  # For future use with pgvector
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    # Relationships
+    transactions = relationship("Transaction", back_populates="vendor", cascade="all, delete-orphan")

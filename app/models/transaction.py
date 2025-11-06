@@ -1,5 +1,6 @@
 import uuid
-from sqlalchemy import Column, DateTime, Float, String, Text, func, Index
+from sqlalchemy import Column, DateTime, Float, String, Text, func, Index, ForeignKey
+from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 from app.core.database import Base
 
@@ -8,7 +9,7 @@ class Transaction(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     transaction_date = Column(DateTime, nullable=False, index=True)
-    vendor_id = Column(UUID(as_uuid=True), nullable=True, index=True)  # FK to vendors
+    vendor_id = Column(UUID(as_uuid=True), ForeignKey("vendors.id"), nullable=True, index=True)  # FK to vendors
     amount = Column(Float, nullable=False, index=True)
     category = Column(String, nullable=True, index=True)  # expense, income, transfer, etc.
     normalized_description = Column(String, nullable=True, index=True)
@@ -24,6 +25,9 @@ class Transaction(Base):
     
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    # Relationships
+    vendor = relationship("Vendor", back_populates="transactions")
 
     # Indexes for performance
     __table_args__ = (

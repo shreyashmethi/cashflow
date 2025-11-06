@@ -19,6 +19,7 @@ from app.schemas.analytics import (
 )
 from datetime import datetime
 from typing import Optional
+from uuid import UUID
 
 router = APIRouter()
 
@@ -94,18 +95,27 @@ async def get_visualization_data(
     viz_service = VisualizationService(db)
 
     try:
+        vendor_uuid = None
+        if request.vendor_id:
+            try:
+                vendor_uuid = UUID(request.vendor_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid vendor_id format")
+
         data = viz_service.get_visualization_data(
             chart_type=request.chart_type,
             date_from=request.date_from,
             date_to=request.date_to,
             group_by=request.group_by,
-            vendor_id=request.vendor_id,
+            vendor_id=vendor_uuid,
             category=request.category
         )
 
         return VisualizationResponse(**data)
 
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/run-anomaly-scan", response_model=AnomalyScanResponse)

@@ -368,7 +368,7 @@ class QuickBooksSyncService:
             return []
         except Exception as e:
             logger.error(f"Unexpected error fetching QuickBooks vendors: {str(e)}")
-            return []
+        return []
     
     def _fetch_quickbooks_transactions(
         self,

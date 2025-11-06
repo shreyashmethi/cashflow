@@ -145,7 +145,7 @@ class QuickBooksOAuthService:
         
         try:
             # Refresh the token
-            auth_client.refresh(realm_id=connection.realm_id)
+            auth_client.refresh()
             
             # Update connection with new tokens
             connection.access_token = auth_client.access_token

@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 class QueryRequest(BaseModel):
     """Request schema for natural language queries."""
@@ -111,9 +111,17 @@ class DashboardRequest(BaseModel):
     include_insights: Optional[bool] = Field(True, description="Include AI insights")
     include_transactions: Optional[bool] = Field(True, description="Include recent transactions")
 
+class DashboardPeriod(BaseModel):
+    """Schema describing the dashboard period metadata."""
+    model_config = ConfigDict(populate_by_name=True)
+
+    start: str = Field(..., alias="from", description="Period start in ISO format")
+    end: str = Field(..., alias="to", description="Period end in ISO format")
+    days: int = Field(..., description="Number of days within the period")
+
 class DashboardResponse(BaseModel):
     """Response schema for dashboard data."""
-    period: Dict[str, str] = Field(..., description="Dashboard period information")
+    period: DashboardPeriod = Field(..., description="Dashboard period information")
     kpi_cards: List[KPICard] = Field(..., description="Key performance indicator cards")
     cash_flow_trend: Dict[str, Any] = Field(..., description="Cash flow trend chart data")
     cash_health: CashHealthMetric = Field(..., description="Cash health metrics")

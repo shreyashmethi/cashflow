@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Literal
+from uuid import UUID
 from sqlalchemy.orm import Session
 from sqlalchemy import func, text, and_
 from app.core.database import SessionLocal
@@ -30,7 +31,7 @@ class VisualizationService:
         return {"from": date_from, "to": date_to}
 
     def _get_time_series_data(self, chart_type: str, group_by: str, date_from: datetime, date_to: datetime,
-                             vendor_id: Optional[str] = None, category: Optional[str] = None) -> List[Dict[str, Any]]:
+                             vendor_id: Optional[UUID] = None, category: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get time series data for line/area charts."""
         # Build the date truncation function
         if group_by == "day":
@@ -111,7 +112,7 @@ class VisualizationService:
         return data
 
     def _get_category_pie_data(self, date_from: datetime, date_to: datetime,
-                              vendor_id: Optional[str] = None) -> List[Dict[str, Any]]:
+                              vendor_id: Optional[UUID] = None) -> List[Dict[str, Any]]:
         """Get category breakdown for pie charts."""
         filters = ["transaction_date >= :date_from", "transaction_date <= :date_to", "amount < 0", "category IS NOT NULL"]
         params = {"date_from": date_from, "date_to": date_to}
@@ -210,7 +211,7 @@ class VisualizationService:
 
     def get_visualization_data(self, chart_type: str, date_from: Optional[datetime] = None,
                               date_to: Optional[datetime] = None, group_by: str = "month",
-                              vendor_id: Optional[str] = None, category: Optional[str] = None) -> Dict[str, Any]:
+                              vendor_id: Optional[UUID] = None, category: Optional[str] = None) -> Dict[str, Any]:
         """Generate visualization data based on chart type and filters."""
         date_range = self._get_date_range(date_from, date_to)
 
@@ -251,7 +252,7 @@ class VisualizationService:
         }
 
     def _generate_chart_title(self, chart_type: str, date_range: Dict[str, datetime],
-                             vendor_id: Optional[str] = None, category: Optional[str] = None) -> str:
+                             vendor_id: Optional[UUID] = None, category: Optional[str] = None) -> str:
         """Generate appropriate chart title based on parameters."""
         start_date = date_range["from"].strftime("%b %Y")
         end_date = date_range["to"].strftime("%b %Y")

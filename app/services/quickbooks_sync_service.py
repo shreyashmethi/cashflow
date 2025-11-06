@@ -14,6 +14,7 @@ from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 import uuid
+import requests
 
 from app.models.quickbooks_connection import QuickBooksConnection
 from app.models.quickbooks_sync_log import QuickBooksSyncLog
@@ -29,6 +30,16 @@ class QuickBooksSyncService:
     
     def __init__(self, oauth_service: QuickBooksOAuthService):
         self.oauth_service = oauth_service
+        self.environment = oauth_service.environment
+        
+        # Set base URL based on environment
+        # QuickBooks API uses different base URLs for sandbox vs production
+        if self.environment == "sandbox":
+            # Sandbox URL format - must end with trailing slash
+            self.base_url = "https://sandbox-quickbooks.api.intuit.com/v3/company"
+        else:
+            # Production URL format - must end with trailing slash
+            self.base_url = "https://quickbooks.api.intuit.com/v3/company"
     
     def sync_connection(
         self,
@@ -301,24 +312,63 @@ class QuickBooksSyncService:
         """
         Fetch vendors from QuickBooks API
         
-        NOTE: This is a placeholder. In production, you'd use the QuickBooks Python SDK
-        or make direct API calls to:
-        https://quickbooks.api.intuit.com/v3/company/{realm_id}/query
+        Uses QuickBooks API v3 to query vendors.
+        API endpoint: {base_url}/{realm_id}/query
         Query: SELECT * FROM Vendor
         """
-        # TODO: Implement actual QuickBooks API call
-        # Example using requests:
-        # headers = {
-        #     "Authorization": f"Bearer {access_token}",
-        #     "Accept": "application/json"
-        # }
-        # url = f"https://quickbooks.api.intuit.com/v3/company/{realm_id}/query"
-        # params = {"query": "SELECT * FROM Vendor"}
-        # response = requests.get(url, headers=headers, params=params)
-        # return response.json()["QueryResponse"]["Vendor"]
-        
-        logger.warning("_fetch_quickbooks_vendors not implemented - using placeholder")
-        return []
+        try:
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/json"
+            }
+            # Construct full endpoint URL
+            # Format: https://{base}/v3/company/{realm_id}/query
+            url = f"{self.base_url}/{realm_id}/query"
+            
+            # Query all active vendors
+            # QuickBooks API requires query as URL parameter
+            # Properly encode the query string
+            query = "SELECT * FROM Vendor WHERE Active = true MAXRESULTS 1000"
+            params = {
+                "minorversion": "65",
+                "query": query
+            }
+            
+            logger.debug(f"Fetching vendors from QuickBooks: {url} (environment: {self.environment})")
+            response = requests.get(url, headers=headers, params=params, timeout=30)
+            
+            # Log response details for debugging
+            if response.status_code != 200:
+                logger.error(f"QuickBooks API error: {response.status_code} - {response.text}")
+            
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Handle response format
+            if "QueryResponse" in data and "Vendor" in data["QueryResponse"]:
+                vendors = data["QueryResponse"]["Vendor"]
+                # Ensure it's a list (QuickBooks may return single dict or list)
+                if isinstance(vendors, dict):
+                    vendors = [vendors]
+                
+                logger.info(f"Fetched {len(vendors)} vendors from QuickBooks")
+                return vendors
+            
+            # No vendors found in response
+            logger.info("No vendors found in QuickBooks response")
+            return []
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error fetching QuickBooks vendors: {str(e)}")
+            raise
+        except KeyError as e:
+            logger.error(f"Unexpected response format from QuickBooks API: {str(e)}")
+            # Return empty list to allow sync to continue
+            return []
+        except Exception as e:
+            logger.error(f"Unexpected error fetching QuickBooks vendors: {str(e)}")
+            return []
     
     def _fetch_quickbooks_transactions(
         self,
@@ -330,23 +380,93 @@ class QuickBooksSyncService:
         """
         Fetch transactions from QuickBooks API
         
-        NOTE: This is a placeholder. In production, you'd fetch:
+        Fetches multiple transaction types:
         - Purchase transactions (expenses)
-        - Sales/Invoice transactions (income)
-        - Bank transactions
-        - Journal entries
+        - Bill transactions (expenses)
+        - Invoice transactions (income)
+        - Payment transactions
+        - Expense transactions
         
-        QuickBooks API endpoints to query:
-        - Purchase: SELECT * FROM Purchase WHERE TxnDate >= '...' AND TxnDate <= '...'
-        - Bill: SELECT * FROM Bill WHERE TxnDate >= '...' AND TxnDate <= '...'
-        - Invoice: SELECT * FROM Invoice WHERE TxnDate >= '...' AND TxnDate <= '...'
-        - Payment: SELECT * FROM Payment WHERE TxnDate >= '...' AND TxnDate <= '...'
+        Returns combined list of all transactions
         """
-        # TODO: Implement actual QuickBooks API calls
-        # You'll need to query multiple entity types and combine them
+        all_transactions = []
         
-        logger.warning("_fetch_quickbooks_transactions not implemented - using placeholder")
-        return []
+        # Format dates for QuickBooks query
+        date_from_str = date_from.strftime("%Y-%m-%d")
+        date_to_str = date_to.strftime("%Y-%m-%d")
+        
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json"
+        }
+        # Construct full endpoint URL
+        # Format: https://{base}/v3/company/{realm_id}/query
+        url = f"{self.base_url}/{realm_id}/query"
+        
+        # Transaction types to fetch
+        # Note: QuickBooks API entity types - "Expense" is not a valid entity type
+        # Use "Bill" for expense bills, "Purchase" for purchase transactions
+        transaction_types = [
+            ("Purchase", "expense"),
+            ("Bill", "expense"),
+            ("Invoice", "income"),
+            ("Payment", "income"),
+            ("SalesReceipt", "income"),
+            ("Deposit", "income"),
+            ("JournalEntry", "adjustment"),
+            ("Transfer", "transfer")
+        ]
+        
+        for entity_type, _ in transaction_types:
+            try:
+                # Build query for this transaction type
+                query = (
+                    f"SELECT * FROM {entity_type} "
+                    f"WHERE TxnDate >= '{date_from_str}' "
+                    f"AND TxnDate <= '{date_to_str}' "
+                    f"MAXRESULTS 1000"
+                )
+                
+                params = {"minorversion": "65", "query": query}
+                
+                logger.debug(f"Fetching {entity_type} transactions from QuickBooks: {url} (environment: {self.environment})")
+                response = requests.get(url, headers=headers, params=params, timeout=30)
+                
+                # Log response details for debugging
+                if response.status_code != 200:
+                    logger.error(f"QuickBooks API error for {entity_type}: {response.status_code} - {response.text}")
+                
+                response.raise_for_status()
+                
+                data = response.json()
+                
+                # Extract transactions from response
+                if "QueryResponse" in data and entity_type in data["QueryResponse"]:
+                    transactions = data["QueryResponse"][entity_type]
+                    # Ensure it's a list
+                    if isinstance(transactions, dict):
+                        transactions = [transactions]
+                    
+                    # Add type metadata to each transaction
+                    for txn in transactions:
+                        txn["type"] = entity_type.lower()
+                    
+                    all_transactions.extend(transactions)
+                    logger.info(f"Fetched {len(transactions)} {entity_type} transactions")
+                
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"Error fetching {entity_type} transactions: {str(e)}")
+                # Continue with other transaction types
+                continue
+            except KeyError:
+                # No transactions of this type found, continue
+                continue
+            except Exception as e:
+                logger.warning(f"Unexpected error fetching {entity_type} transactions: {str(e)}")
+                continue
+        
+        logger.info(f"Total transactions fetched: {len(all_transactions)}")
+        return all_transactions
     
     # Utility methods
     

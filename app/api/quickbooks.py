@@ -11,7 +11,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+from uuid import UUID
+import uuid
 
 from app.core.database import SessionLocal
 from app.models.quickbooks_connection import QuickBooksConnection
@@ -45,6 +47,13 @@ class QuickBooksConnectionResponse(BaseModel):
     sync_error: Optional[str]
     created_at: datetime
     
+    @field_validator('id', mode='before')
+    @classmethod
+    def convert_uuid_to_str(cls, v):
+        if isinstance(v, UUID):
+            return str(v)
+        return v
+    
     class Config:
         from_attributes = True
 
@@ -62,6 +71,13 @@ class SyncLogResponse(BaseModel):
     completed_at: Optional[datetime]
     duration_seconds: Optional[int]
     error_message: Optional[str]
+    
+    @field_validator('id', mode='before')
+    @classmethod
+    def convert_uuid_to_str(cls, v):
+        if isinstance(v, UUID):
+            return str(v)
+        return v
     
     class Config:
         from_attributes = True
@@ -146,8 +162,14 @@ async def get_connection(
     """
     Get a specific QuickBooks connection
     """
+    try:
+        # Convert string to UUID for database query
+        connection_uuid = uuid.UUID(connection_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid connection_id format")
+    
     connection = db.query(QuickBooksConnection).filter(
-        QuickBooksConnection.id == connection_id
+        QuickBooksConnection.id == connection_uuid
     ).first()
     
     if not connection:
@@ -168,8 +190,14 @@ async def trigger_sync(
     
     The sync runs in the background
     """
+    try:
+        # Convert string to UUID for database query
+        connection_uuid = uuid.UUID(connection_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid connection_id format")
+    
     connection = db.query(QuickBooksConnection).filter(
-        QuickBooksConnection.id == connection_id
+        QuickBooksConnection.id == connection_uuid
     ).first()
     
     if not connection:
@@ -181,7 +209,7 @@ async def trigger_sync(
     # Run sync in background
     background_tasks.add_task(
         _run_sync,
-        connection_id,
+        connection_id,  # Keep as string for logging
         sync_request.sync_type,
         sync_request.date_from,
         sync_request.date_to
@@ -201,8 +229,14 @@ async def disconnect_quickbooks(
     """
     Disconnect and revoke QuickBooks connection
     """
+    try:
+        # Convert string to UUID for database query
+        connection_uuid = uuid.UUID(connection_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid connection_id format")
+    
     connection = db.query(QuickBooksConnection).filter(
-        QuickBooksConnection.id == connection_id
+        QuickBooksConnection.id == connection_uuid
     ).first()
     
     if not connection:
@@ -228,8 +262,14 @@ async def get_sync_logs(
     """
     Get sync logs for a connection
     """
+    try:
+        # Convert string to UUID for database query
+        connection_uuid = uuid.UUID(connection_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid connection_id format")
+    
     logs = db.query(QuickBooksSyncLog).filter(
-        QuickBooksSyncLog.connection_id == connection_id
+        QuickBooksSyncLog.connection_id == connection_uuid
     ).order_by(
         QuickBooksSyncLog.started_at.desc()
     ).limit(limit).all()
@@ -245,8 +285,14 @@ async def get_sync_log(
     """
     Get a specific sync log
     """
+    try:
+        # Convert string to UUID for database query
+        log_uuid = uuid.UUID(log_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid log_id format")
+    
     log = db.query(QuickBooksSyncLog).filter(
-        QuickBooksSyncLog.id == log_id
+        QuickBooksSyncLog.id == log_uuid
     ).first()
     
     if not log:
@@ -267,8 +313,15 @@ def _run_sync(
     """
     db = SessionLocal()
     try:
+        # Convert string to UUID for database query
+        try:
+            connection_uuid = uuid.UUID(connection_id)
+        except ValueError:
+            logger.error(f"Invalid connection_id format: {connection_id}")
+            return
+        
         connection = db.query(QuickBooksConnection).filter(
-            QuickBooksConnection.id == connection_id
+            QuickBooksConnection.id == connection_uuid
         ).first()
         
         if not connection:
@@ -299,8 +352,14 @@ async def test_connection(
     """
     Test QuickBooks connection by fetching company info
     """
+    try:
+        # Convert string to UUID for database query
+        connection_uuid = uuid.UUID(connection_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid connection_id format")
+    
     connection = db.query(QuickBooksConnection).filter(
-        QuickBooksConnection.id == connection_id
+        QuickBooksConnection.id == connection_uuid
     ).first()
     
     if not connection:

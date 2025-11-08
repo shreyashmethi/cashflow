@@ -127,26 +127,9 @@ async def quickbooks_callback(
     This endpoint is called by QuickBooks after user authorizes the app
     """
     # Get frontend URL from environment or use default
-    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:8080")
+    frontend_url = "http://cashflow-dev.uaenorth.cloudapp.azure.com:8080/"
     
-    try:
-        # Exchange code for tokens
-        connection = oauth_service.exchange_code_for_tokens(code, realmId, db)
-        
-        logger.info(f"Successfully connected QuickBooks realm_id: {connection.realm_id}, connection_id: {connection.id}")
-        
-        # Redirect to dashboard with success message
-        return RedirectResponse(
-            url=f"{frontend_url}/dashboard?quickbooks_connected=true&connection_id={connection.id}",
-            status_code=302
-        )
-    except Exception as e:
-        logger.error(f"OAuth callback error: {str(e)}")
-        # Redirect to dashboard with error message
-        return RedirectResponse(
-            url=f"{frontend_url}/dashboard?quickbooks_error=true&error={str(e)}",
-            status_code=302
-        )
+    return RedirectResponse(url=frontend_url, status_code=302)
 
 
 @router.get("/connections", response_model=List[QuickBooksConnectionResponse])

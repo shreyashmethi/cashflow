@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import func, case
 from app.core.database import get_db
 from app.services.parser import FileParser
 from app.services.vendor_service import VendorService
@@ -13,6 +14,7 @@ from app.schemas.transaction import (
 )
 from datetime import datetime
 from typing import List, Optional
+from uuid import UUID
 import uuid
 
 router = APIRouter()
@@ -120,6 +122,56 @@ async def validate_bulk_transactions(request: BulkValidationRequest, db: Session
         common_issues=result["summary"]["common_errors"]
     )
 
+def _apply_transaction_filters(
+    query,
+    vendor_id: Optional[str] = None,
+    category: Optional[str] = None,
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None,
+    transaction_type: Optional[str] = None,
+    search: Optional[str] = None
+):
+    """Apply common transaction filters to a query."""
+    if vendor_id:
+        try:
+            vendor_uuid = UUID(vendor_id)
+            query = query.filter(Transaction.vendor_id == vendor_uuid)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid vendor_id format")
+
+    if category:
+        query = query.filter(Transaction.category == category)
+
+    if date_from:
+        query = query.filter(Transaction.transaction_date >= date_from)
+
+    if date_to:
+        query = query.filter(Transaction.transaction_date <= date_to)
+
+    if transaction_type:
+        transaction_type = transaction_type.lower()
+        if transaction_type not in {"inflow", "outflow"}:
+            raise HTTPException(
+                status_code=400,
+                detail="transaction_type must be either 'inflow' or 'outflow'"
+            )
+        if transaction_type == "inflow":
+            query = query.filter(Transaction.amount > 0)
+        else:
+            query = query.filter(Transaction.amount < 0)
+
+    if search:
+        like_pattern = f"%{search.strip()}%"
+        description_field = func.coalesce(
+            Transaction.raw_description,
+            Transaction.normalized_description,
+            ""
+        )
+        query = query.filter(description_field.ilike(like_pattern))
+
+    return query
+
+
 @router.get("/transactions")
 def get_transactions(
     limit: int = 100,
@@ -128,24 +180,33 @@ def get_transactions(
     category: Optional[str] = None,
     date_from: Optional[datetime] = None,
     date_to: Optional[datetime] = None,
+    transaction_type: Optional[str] = None,
+    search: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """Get transactions with optional filtering."""
     query = db.query(Transaction)
+    query = _apply_transaction_filters(
+        query=query,
+        vendor_id=vendor_id,
+        category=category,
+        date_from=date_from,
+        date_to=date_to,
+        transaction_type=transaction_type,
+        search=search
+    )
 
-    if vendor_id:
-        query = query.filter(Transaction.vendor_id == vendor_id)
-    if category:
-        query = query.filter(Transaction.category == category)
-    if date_from:
-        query = query.filter(Transaction.transaction_date >= date_from)
-    if date_to:
-        query = query.filter(Transaction.transaction_date <= date_to)
+    total_count = query.count()
 
-    transactions = query.offset(offset).limit(limit).all()
+    transactions = (
+        query
+        .order_by(Transaction.transaction_date.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
 
-    # Convert to response format
-    return [
+    items = [
         TransactionResponse(
             id=str(tx.id),
             transaction_date=tx.transaction_date,
@@ -156,6 +217,162 @@ def get_transactions(
             description=tx.raw_description or tx.normalized_description,
             created_at=tx.created_at,
             updated_at=tx.updated_at
-        )
+        ).model_dump()
         for tx in transactions
     ]
+
+    return {
+        "transactions": items,
+        "total": total_count,
+        "limit": limit,
+        "offset": offset
+    }
+
+
+@router.get("/transactions/summary")
+def get_transactions_summary(
+    vendor_id: Optional[str] = None,
+    category: Optional[str] = None,
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None,
+    transaction_type: Optional[str] = None,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Get aggregated metrics for transactions dashboard."""
+    base_query = db.query(Transaction)
+    filtered_query = _apply_transaction_filters(
+        query=base_query,
+        vendor_id=vendor_id,
+        category=category,
+        date_from=date_from,
+        date_to=date_to,
+        transaction_type=transaction_type,
+        search=search
+    )
+
+    total_transactions = filtered_query.count()
+
+    total_inflow = db.query(func.coalesce(func.sum(Transaction.amount), 0)).filter(
+        Transaction.amount > 0
+    )
+    total_outflow = db.query(func.coalesce(func.sum(Transaction.amount), 0)).filter(
+        Transaction.amount < 0
+    )
+
+    total_inflow = _apply_transaction_filters(
+        query=total_inflow,
+        vendor_id=vendor_id,
+        category=category,
+        date_from=date_from,
+        date_to=date_to,
+        transaction_type=transaction_type,
+        search=search
+    ).scalar() or 0
+
+    total_outflow = abs(_apply_transaction_filters(
+        query=total_outflow,
+        vendor_id=vendor_id,
+        category=category,
+        date_from=date_from,
+        date_to=date_to,
+        transaction_type=transaction_type,
+        search=search
+    ).scalar() or 0)
+
+    net_cashflow = total_inflow - total_outflow
+
+    avg_amount = filtered_query.with_entities(
+        func.coalesce(func.avg(func.abs(Transaction.amount)), 0)
+    ).scalar() or 0
+
+    category_breakdown_query = db.query(
+        Transaction.category,
+        func.count(Transaction.id).label("transaction_count"),
+        func.coalesce(func.sum(Transaction.amount), 0).label("total_amount")
+    ).filter(Transaction.category.isnot(None))
+
+    category_breakdown_query = _apply_transaction_filters(
+        query=category_breakdown_query,
+        vendor_id=vendor_id,
+        category=category,
+        date_from=date_from,
+        date_to=date_to,
+        transaction_type=transaction_type,
+        search=search
+    ).group_by(Transaction.category).order_by(func.sum(func.abs(Transaction.amount)).desc()).limit(6)
+
+    category_breakdown = [
+        {
+            "category": row.category,
+            "transaction_count": row.transaction_count,
+            "total_amount": float(row.total_amount),
+            "direction": "inflow" if row.total_amount >= 0 else "outflow"
+        }
+        for row in category_breakdown_query.all()
+    ]
+
+    monthly_breakdown_query = db.query(
+        func.date_trunc('month', Transaction.transaction_date).label("period"),
+        func.coalesce(func.sum(
+            case((Transaction.amount > 0, Transaction.amount), else_=0.0)
+        ), 0).label("inflow"),
+        func.coalesce(func.sum(
+            case((Transaction.amount < 0, Transaction.amount), else_=0.0)
+        ), 0).label("outflow")
+    )
+
+    monthly_breakdown_query = _apply_transaction_filters(
+        query=monthly_breakdown_query,
+        vendor_id=vendor_id,
+        category=category,
+        date_from=date_from,
+        date_to=date_to,
+        transaction_type=transaction_type,
+        search=search
+    ).group_by(func.date_trunc('month', Transaction.transaction_date)).order_by(func.date_trunc('month', Transaction.transaction_date))
+
+    monthly_breakdown = [
+        {
+            "period": row.period.strftime("%Y-%m"),
+            "inflow": float(row.inflow),
+            "outflow": abs(float(row.outflow)),
+            "net": float(row.inflow + row.outflow)
+        }
+        for row in monthly_breakdown_query.all()
+    ]
+
+    recent_transactions = [
+        TransactionResponse(
+            id=str(tx.id),
+            transaction_date=tx.transaction_date,
+            amount=tx.amount,
+            vendor=tx.vendor.name if tx.vendor else None,
+            vendor_id=str(tx.vendor_id) if tx.vendor_id else None,
+            category=tx.category,
+            description=tx.raw_description or tx.normalized_description,
+            created_at=tx.created_at,
+            updated_at=tx.updated_at
+        ).model_dump()
+        for tx in filtered_query.order_by(Transaction.transaction_date.desc()).limit(5).all()
+    ]
+
+    last_transaction = filtered_query.order_by(Transaction.transaction_date.desc()).first()
+
+    return {
+        "metrics": {
+            "total_transactions": total_transactions,
+            "total_inflow": float(total_inflow),
+            "total_outflow": float(total_outflow),
+            "net_cashflow": float(net_cashflow),
+            "average_transaction": float(avg_amount)
+        },
+        "category_breakdown": category_breakdown,
+        "monthly_breakdown": monthly_breakdown,
+        "recent_transactions": recent_transactions,
+        "last_activity": {
+            "transaction_date": last_transaction.transaction_date.isoformat() if last_transaction else None,
+            "source": last_transaction.source if last_transaction else None,
+            "source_type": last_transaction.source_type if last_transaction else None
+        }
+    }

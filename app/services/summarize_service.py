@@ -274,7 +274,7 @@ class SummarizeService:
             "period": {
                 "from": date_range["from"].isoformat(),
                 "to": date_range["to"].isoformat(),
-                "days": (date_range["to"] - date_range["from"]).days
+                "days": str((date_range["to"] - date_range["from"]).days)
             },
             "kpis": kpis,
             "trends": trends,

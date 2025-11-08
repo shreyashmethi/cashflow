@@ -8,12 +8,14 @@ Provides endpoints for:
 - Disconnect
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from datetime import datetime
 from pydantic import BaseModel, field_validator
 from uuid import UUID
 import uuid
+import os
 
 from app.core.database import SessionLocal
 from app.models.quickbooks_connection import QuickBooksConnection
@@ -124,18 +126,27 @@ async def quickbooks_callback(
     
     This endpoint is called by QuickBooks after user authorizes the app
     """
+    # Get frontend URL from environment or use default
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:8080")
+    
     try:
         # Exchange code for tokens
         connection = oauth_service.exchange_code_for_tokens(code, realmId, db)
         
-        return {
-            "message": "Successfully connected to QuickBooks",
-            "realm_id": connection.realm_id,
-            "connection_id": str(connection.id)
-        }
+        logger.info(f"Successfully connected QuickBooks realm_id: {connection.realm_id}, connection_id: {connection.id}")
+        
+        # Redirect to dashboard with success message
+        return RedirectResponse(
+            url=f"{frontend_url}/dashboard?quickbooks_connected=true&connection_id={connection.id}",
+            status_code=302
+        )
     except Exception as e:
         logger.error(f"OAuth callback error: {str(e)}")
-        raise HTTPException(status_code=400, detail=f"Failed to connect: {str(e)}")
+        # Redirect to dashboard with error message
+        return RedirectResponse(
+            url=f"{frontend_url}/dashboard?quickbooks_error=true&error={str(e)}",
+            status_code=302
+        )
 
 
 @router.get("/connections", response_model=List[QuickBooksConnectionResponse])
@@ -377,4 +388,130 @@ async def test_connection(
     except Exception as e:
         logger.error(f"Connection test failed: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Connection test failed: {str(e)}")
+
+
+@router.get("/connections/{connection_id}/debug-transactions")
+async def debug_transactions(
+    connection_id: str,
+    limit: int = Query(5, ge=1, le=20),
+    db: Session = Depends(get_db)
+):
+    """
+    Debug endpoint to see raw QuickBooks transaction data
+    """
+    try:
+        connection_uuid = uuid.UUID(connection_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid connection_id format")
+    
+    connection = db.query(QuickBooksConnection).filter(
+        QuickBooksConnection.id == connection_uuid
+    ).first()
+    
+    if not connection:
+        raise HTTPException(status_code=404, detail="Connection not found")
+    
+    try:
+        access_token = oauth_service.get_valid_access_token(connection, db)
+        
+        import requests
+        base_url = "https://sandbox-quickbooks.api.intuit.com" if oauth_service.environment == "sandbox" else "https://quickbooks.api.intuit.com"
+        url = f"{base_url}/v3/company/{connection.realm_id}/query"
+        
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json"
+        }
+        
+        # Fetch a few Purchase transactions to debug
+        params = {
+            "query": f"SELECT * FROM Purchase MAXRESULTS {limit}",
+            "minorversion": "65"
+        }
+        
+        response = requests.get(url, headers=headers, params=params, timeout=10)
+        response.raise_for_status()
+        
+        data = response.json()
+        purchases = data.get("QueryResponse", {}).get("Purchase", [])
+        
+        # Also try Invoice
+        params["query"] = f"SELECT * FROM Invoice MAXRESULTS {limit}"
+        response = requests.get(url, headers=headers, params=params, timeout=10)
+        response.raise_for_status()
+        
+        data = response.json()
+        invoices = data.get("QueryResponse", {}).get("Invoice", [])
+        
+        return {
+            "status": "success",
+            "connection_id": str(connection.id),
+            "realm_id": connection.realm_id,
+            "sample_purchases": purchases,
+            "sample_invoices": invoices,
+            "note": "Check the TotalAmt, Amount, or Line[].Amount fields in the response"
+        }
+        
+    except Exception as e:
+        logger.error(f"Debug failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Debug failed: {str(e)}")
+
+
+@router.post("/connections/{connection_id}/sync-now")
+async def sync_now_synchronous(
+    connection_id: str,
+    sync_request: SyncRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Synchronous sync endpoint for debugging (waits for completion)
+    """
+    try:
+        connection_uuid = uuid.UUID(connection_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid connection_id format")
+    
+    connection = db.query(QuickBooksConnection).filter(
+        QuickBooksConnection.id == connection_uuid
+    ).first()
+    
+    if not connection:
+        raise HTTPException(status_code=404, detail="Connection not found")
+    
+    if not connection.is_active:
+        raise HTTPException(status_code=400, detail="Connection is not active")
+    
+    try:
+        logger.info(f"Starting synchronous sync for connection {connection_id}")
+        
+        # Run sync synchronously (not in background)
+        sync_log = sync_service.sync_connection(
+            connection,
+            db,
+            sync_type=sync_request.sync_type or "incremental",
+            date_from=sync_request.date_from,
+            date_to=sync_request.date_to
+        )
+        
+        logger.info(f"Sync completed for connection {connection_id}")
+        
+        return {
+            "message": "Sync completed successfully",
+            "sync_log": {
+                "id": str(sync_log.id),
+                "sync_type": sync_log.sync_type,
+                "status": sync_log.status,
+                "transactions_fetched": sync_log.transactions_fetched,
+                "transactions_created": sync_log.transactions_created,
+                "transactions_updated": sync_log.transactions_updated,
+                "transactions_skipped": sync_log.transactions_skipped,
+                "vendors_synced": sync_log.vendors_synced,
+                "duration_seconds": sync_log.duration_seconds,
+                "error_message": sync_log.error_message
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Sync failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
 

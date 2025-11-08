@@ -290,6 +290,10 @@ class DashboardService:
             desc(Transaction.transaction_date)
         ).limit(limit).all()
 
+        def format_currency(amount: float) -> str:
+            """Format amount as currency string."""
+            return f"${abs(amount):,.2f}"
+
         return [
             {
                 "id": str(tx.id),
@@ -297,6 +301,8 @@ class DashboardService:
                 "description": tx.raw_description or tx.normalized_description or "Transaction",
                 "category": tx.category or "Uncategorized",
                 "amount": float(tx.amount),
+                "formatted_amount": format_currency(tx.amount),
+                "type": "inflow" if tx.amount > 0 else "outflow",
                 "status": "Completed",
                 "vendor": tx.vendor.name if tx.vendor else None
             }
@@ -401,7 +407,7 @@ class DashboardService:
             "period": {
                 "from": date_range["from"].isoformat(),
                 "to": date_range["to"].isoformat(),
-                "days": (date_range["to"] - date_range["from"]).days
+                "days": str((date_range["to"] - date_range["from"]).days)
             },
             "kpi_cards": kpi_cards,
             "cash_flow_trend": cash_flow_trend,

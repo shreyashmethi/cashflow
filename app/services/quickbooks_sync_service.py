@@ -85,8 +85,13 @@ class QuickBooksSyncService:
             
             # Determine date range
             if sync_type == "incremental" and not date_from:
-                # Start from last sync or 30 days ago
-                date_from = connection.last_sync_at or (datetime.utcnow() - timedelta(days=30))
+                # Start from last sync or 90 days ago (to ensure we get historical data)
+                if connection.last_sync_at:
+                    # For incremental, go back 7 days from last sync to catch any updates
+                    date_from = connection.last_sync_at - timedelta(days=7)
+                else:
+                    # First sync - get last 90 days
+                    date_from = datetime.utcnow() - timedelta(days=90)
             elif not date_from:
                 # Full sync - get last 365 days by default
                 date_from = datetime.utcnow() - timedelta(days=365)
@@ -227,6 +232,10 @@ class QuickBooksSyncService:
             )
             
             for txn_data in transactions_data:
+                # Log first transaction for debugging
+                if stats["fetched"] > 0 and stats["created"] == 0 and stats["updated"] == 0:
+                    logger.info(f"Sample transaction data: {txn_data}")
+                
                 result = self._process_transaction(connection, txn_data, db)
                 stats[result] += 1
             
@@ -270,12 +279,24 @@ class QuickBooksSyncService:
         # Extract transaction data
         txn_date = self._parse_qb_date(txn_data.get("TxnDate"))
         amount = self._extract_transaction_amount(txn_data)
-        description = txn_data.get("Description") or ""
+        description = txn_data.get("Description") or txn_data.get("PrivateNote") or ""
         
-        # Get vendor
+        # Log if amount is zero for debugging
+        if amount == 0:
+            logger.warning(
+                f"Zero amount extracted for transaction {qb_txn_id}. "
+                f"Type: {txn_data.get('type')}, "
+                f"TotalAmt: {txn_data.get('TotalAmt')}, "
+                f"Available keys: {list(txn_data.keys())}"
+            )
+        
+        # Get vendor/customer name
         vendor_name = None
         if "EntityRef" in txn_data:
             vendor_name = txn_data["EntityRef"].get("name")
+        elif "CustomerRef" in txn_data:
+            # For invoices, use customer as the vendor
+            vendor_name = txn_data["CustomerRef"].get("name")
         
         vendor = None
         if vendor_name:
@@ -549,13 +570,27 @@ class QuickBooksSyncService:
 
     def _extract_transaction_amount(self, txn_data: Dict[str, Any]) -> float:
         """Extract the monetary amount from a QuickBooks transaction payload"""
+        txn_type = txn_data.get("type", "").lower()
+        txn_id = txn_data.get("Id", "unknown")
+        
         # Most entities expose TotalAmt or TxnTotalAmt
-        for key in ("TotalAmt", "TxnTotalAmt", "Amount"):
+        for key in ("TotalAmt", "TxnTotalAmt", "Amount", "Total"):
             value = txn_data.get(key)
             if value is not None:
                 try:
-                    return float(value)
-                except (TypeError, ValueError):
+                    amount = float(value)
+                    
+                    # Apply sign based on transaction type
+                    # Expenses should be negative, income should be positive
+                    if txn_type in ["purchase", "bill", "expense"] and amount > 0:
+                        amount = -amount
+                    elif txn_type in ["invoice", "salesreceipt", "payment", "deposit"] and amount < 0:
+                        amount = abs(amount)
+                    
+                    logger.debug(f"Transaction {txn_id}: Extracted amount {amount} from field '{key}' (raw: {value}) for type '{txn_type}'")
+                    return amount
+                except (TypeError, ValueError) as e:
+                    logger.warning(f"Transaction {txn_id}: Failed to convert {key}={value} to float: {e}")
                     continue
 
         # Fallback: sum line amounts if available
@@ -565,14 +600,36 @@ class QuickBooksSyncService:
 
         total = 0.0
         for line in lines:
-            amount = line.get("Amount")
-            if amount is None:
+            amount_val = line.get("Amount")
+            if amount_val is None:
                 continue
             try:
-                total += float(amount)
-            except (TypeError, ValueError):
+                line_amount = float(amount_val)
+                # Check line detail type for sign
+                detail_type = line.get("DetailType", "")
+                
+                # Apply sign based on detail type
+                if detail_type in ["AccountBasedExpenseLineDetail", "ExpenseLineDetail"]:
+                    line_amount = -abs(line_amount)
+                elif detail_type in ["SalesItemLineDetail", "IncomeLineDetail"]:
+                    line_amount = abs(line_amount)
+                
+                total += line_amount
+                logger.debug(f"Transaction {txn_id}: Line amount {line_amount} from DetailType '{detail_type}'")
+            except (TypeError, ValueError) as e:
+                logger.warning(f"Transaction {txn_id}: Failed to convert line amount {amount_val}: {e}")
                 continue
 
+        if total == 0.0:
+            # Log warning if we couldn't extract any amount
+            logger.warning(
+                f"Transaction {txn_id}: Could not extract any amount! "
+                f"Type: {txn_type}, TotalAmt: {txn_data.get('TotalAmt')}, "
+                f"Keys: {list(txn_data.keys())[:10]}"
+            )
+        else:
+            logger.debug(f"Transaction {txn_id}: Final amount from lines: {total}")
+        
         return total
 
     def _log_payload_preview(

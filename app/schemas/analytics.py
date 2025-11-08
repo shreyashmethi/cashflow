@@ -101,13 +101,16 @@ class RecentTransaction(BaseModel):
     description: str = Field(..., description="Transaction description")
     category: Optional[str] = Field(None, description="Transaction category")
     amount: float = Field(..., description="Transaction amount")
+    formatted_amount: str = Field(..., description="Formatted amount with currency symbol")
+    type: Literal["inflow", "outflow"] = Field(..., description="Transaction type")
     status: str = Field(..., description="Transaction status")
     vendor: Optional[str] = Field(None, description="Vendor name")
 
 class DashboardRequest(BaseModel):
     """Request schema for dashboard data."""
-    date_from: Optional[datetime] = Field(None, description="Start date for dashboard period")
-    date_to: Optional[datetime] = Field(None, description="End date for dashboard period")
+    email: Optional[str] = Field(None, description="User email (for future user-specific filtering)")
+    date_from: Optional[datetime] = Field(None, description="Start date for dashboard period (defaults to 30 days ago)")
+    date_to: Optional[datetime] = Field(None, description="End date for dashboard period (defaults to now)")
     include_insights: Optional[bool] = Field(True, description="Include AI insights")
     include_transactions: Optional[bool] = Field(True, description="Include recent transactions")
 

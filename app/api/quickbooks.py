@@ -127,7 +127,7 @@ async def quickbooks_callback(
     This endpoint is called by QuickBooks after user authorizes the app
     """
     # Get frontend URL from environment or use default
-    frontend_url = "http://cashflow-dev.uaenorth.cloudapp.azure.com:8080/"
+    frontend_url = "http://cashflow-dev.uaenorth.cloudapp.azure.com:8080/dashboard"
     
     return RedirectResponse(url=frontend_url, status_code=302)
 

@@ -12,11 +12,13 @@ class QueryRequest(BaseModel):
 class QueryResponse(BaseModel):
     """Response schema for query results."""
     success: bool = Field(..., description="Whether query executed successfully")
-    sql: str = Field(..., description="Generated SQL query")
-    intent: str = Field(..., description="Detected query intent")
-    results: List[Dict[str, Any]] = Field(..., description="Query results")
+    sql: Optional[str] = Field(None, description="Generated SQL query")
+    intent: Optional[str] = Field(None, description="Detected query intent")
+    results: Optional[List[Dict[str, Any]]] = Field(None, description="Query results")
     execution_time_ms: float = Field(..., description="Query execution time in milliseconds")
-    result_count: int = Field(..., description="Number of results returned")
+    result_count: Optional[int] = Field(None, description="Number of results returned")
+    natural_language_response: Optional[str] = Field(None, description="Natural language summary of results")
+    summary: Optional[str] = Field(None, description="Alias for natural_language_response")
     error: Optional[str] = Field(None, description="Error message if query failed")
 
 class SummarizeRequest(BaseModel):
